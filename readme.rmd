@@ -1,0 +1,75 @@
+---
+title: "Getting and Cleaning Portland Bike Count Data"
+author: "Steve Leathers"
+date: "Thursday, June 11, 2015"
+output: html_document
+---
+
+On June 11, 2015, the Portland Bureau of Transportation made its bike count data public. They released 15+ years of bike count data from over 200 locations. As of June 2015, it's available here: <https://t.co/LyzsSlrsFV>.
+
+I've been a daily bicyclist since I moved here in 2009 and it's always interesting to know how many people are riding bikes. 
+
+This document goes through a bit of the cleaning with a bit of justification.
+
+I originally downloaded the bike counts as TSV files, and then read them into R.
+
+```{r}
+library(readr)
+bike_counts = read_tsv("Portland Bike Counts - bike counts.tsv")
+```
+
+Since I'm using R, I want to change all of these blank values that were filled with '-' to NAs:
+
+```{r}
+bike_counts[bike_counts == "-"] <- NA
+```
+
+I then had a few failed attempts at geocoding. Let's just say that it would be best to change your ampersands to "at"s and add "Portland OR" to the end of every location string.
+
+```{r}
+bike_counts$Location = gsub("&", "at", bike_counts$Location)
+bike_counts$LocationFull = paste(bike_counts$Location, 'Portland OR')
+```
+
+From here, I'd try geocoding. There are sometimes some errors. It's helpful to keep in mind that Portland's center is around 45.52, -122.6819. If you see lat,lon coords that are wildly different, you've got a problem.
+
+```{r, cache=TRUE}
+library(ggmap)
+bike_counts$geocode = geocode(as.character(bike_counts$LocationFull))
+```
+
+Note that this code is going to ping the Google Maps API once for every item in our LocationFull variable. It could take a few minutes. 
+
+The geocodes get tossed into our dataframe in a weird way. All latitudes in one cell, all longitudes in another. From here I usually toss the geocodes into their own data frame, remove our previous geocodes variable and then cbind the two dataframes together. This is probably dumb and amatuerish and there's almost certainly a better way to do this, but I don't know what it is.
+
+```{r results=FALSE, echo=FALSE}
+geocodes = as.data.frame(bike_counts$geocode)
+bike_counts = bike_counts[,(-22)]
+bike_counts = cbind(bike_counts, geocodes)
+```
+
+Looking through these lat,lon coordinates, everything seems in order, but the Google Maps has been known to throw some duds sometimes. So be wary. 
+
+
+I also am kind of interested in morning vs. evening commutes, so I decided to take the count.time variable and change it to a factor variable of "Morning", "Evening".
+
+```{r}
+bike_counts$commute = ifelse(bike_counts$"count time"=='7-9am', "Morning", "Evening")
+```
+
+And then let's try to drop the whole thing into leaflet with the following commands:
+
+```{r}
+library(leaflet)
+library(htmlwidgets)
+leaflet() %>% setView(-122.6819, 45.52, zoom =13) %>% addTiles() %>%
+    addMarkers(bike_counts$lon, bike_counts$lat)
+```
+
+Looking pretty sharp. From here I just wrote the dataframe to a csv.
+
+```{r}
+write.csv(bike_counts, "bikecounts.csv")
+```
+
+Hopefully I'll have some more time in the coming days to play around with some visualizations and do a little analysis.
